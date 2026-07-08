@@ -1,0 +1,64 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Platform infrastructure — Crossplane, Gatekeeper, OpenCost, vCluster operator
+
+  sourceRepos:
+    - https://github.com/your-org/idp.git
+    - https://charts.crossplane.io/stable
+    - https://open-policy-agent.github.io/gatekeeper/charts
+    - https://opencost.github.io/opencost-helm-chart
+    - https://loft-sh.github.io/vcluster
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: crossplane-system
+    - server: https://kubernetes.default.svc
+      namespace: gatekeeper-system
+    - server: https://kubernetes.default.svc
+      namespace: opencost
+    - server: https://kubernetes.default.svc
+      namespace: vcluster-operator
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+
+  clusterResourceWhitelist:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: constraints.gatekeeper.sh
+      kind: '*'
+    - group: templates.gatekeeper.sh
+      kind: ConstraintTemplate
+    - group: pkg.crossplane.io
+      kind: Provider
+    - group: pkg.crossplane.io
+      kind: ProviderRevision
+    - group: apiextensions.crossplane.io
+      kind: CompositeResourceDefinition
+    - group: apiextensions.crossplane.io
+      kind: Composition
+
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  roles:
+    - name: platform-admin
+      description: Full access for platform engineers
+      policies:
+        - p, proj:platform:platform-admin, applications, *, platform/*, allow
+      groups:
+        - platform-team

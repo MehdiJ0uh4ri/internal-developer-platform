@@ -1,0 +1,78 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8sblockport22
+  annotations:
+    description: >
+      Blocks containers from declaring port 22 (SSH) and Services from
+      exposing port 22. SSH into pods is a security anti-pattern in
+      container environments; use kubectl exec instead.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sBlockPort22
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            blockedPorts:
+              type: array
+              description: Port numbers to block (default enforcement is port 22)
+              items:
+                type: integer
+
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sblockport22
+
+        import future.keywords.in
+
+        default blocked_ports = [22]
+
+        blocked_ports = input.parameters.blockedPorts {
+          count(input.parameters.blockedPorts) > 0
+        }
+
+        # Block containerPort declarations (Pods, Deployments, etc.)
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          port      := container.ports[_]
+          port.containerPort in blocked_ports
+          msg := sprintf(
+            "Container <%v> declares blocked port %v — use a different port",
+            [container.name, port.containerPort]
+          )
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.initContainers[_]
+          port      := container.ports[_]
+          port.containerPort in blocked_ports
+          msg := sprintf(
+            "initContainer <%v> declares blocked port %v",
+            [container.name, port.containerPort]
+          )
+        }
+
+        # Block Service port declarations
+        violation[{"msg": msg}] {
+          input.review.object.kind == "Service"
+          port := input.review.object.spec.ports[_]
+          port.port in blocked_ports
+          msg := sprintf(
+            "Service <%v> exposes blocked port %v",
+            [input.review.object.metadata.name, port.port]
+          )
+        }
+
+        violation[{"msg": msg}] {
+          input.review.object.kind == "Service"
+          port := input.review.object.spec.ports[_]
+          port.targetPort in blocked_ports
+          msg := sprintf(
+            "Service <%v> targets blocked port %v",
+            [input.review.object.metadata.name, port.targetPort]
+          )
+        }

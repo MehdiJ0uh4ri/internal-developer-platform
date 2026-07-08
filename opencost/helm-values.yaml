@@ -1,0 +1,79 @@
+opencost:
+  exporter:
+    image:
+      registry: ghcr.io
+      repository: opencost/opencost
+      tag: "1.109.0"
+
+    # AWS cloud pricing — pulls spot/on-demand rates from Cost and Usage Report
+    cloudProviderApiKey: ""
+    aws:
+      spot_label: "eks.amazonaws.com/capacityType"
+      spot_label_value: "SPOT"
+
+    # Prometheus where OpenCost writes cost metrics
+    defaultClusterId: platform-cluster
+    prometheus:
+      internal:
+        enabled: true
+        serviceName: prometheus-operated
+        namespaceName: monitoring
+        port: 9090
+
+    # Pod labels used for cost allocation
+    # team + env must be present on every workload (enforced by Gatekeeper)
+    allocationFields: "namespace,label:team,label:env,label:app"
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+
+  ui:
+    enabled: true
+    image:
+      repository: ghcr.io/opencost/opencost-ui
+      tag: "1.109.0"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        nginx.ingress.kubernetes.io/auth-url: "https://oauth2.company.com/oauth2/auth"
+      hosts:
+        - host: opencost.company.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: opencost-tls
+          hosts: [opencost.company.com]
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::${AWS_ACCOUNT_ID}:role/OpenCostRole
+
+# Grafana dashboard ConfigMap — loaded by the Grafana sidecar
+grafana:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"

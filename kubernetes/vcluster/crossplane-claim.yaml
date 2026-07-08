@@ -1,0 +1,21 @@
+# Environment claim with vcluster isolation type — triggers Crossplane to
+# create a HelmRelease (vCluster) instead of a plain namespace.
+apiVersion: platform.company.com/v1alpha1
+kind: Environment
+metadata:
+  name: beta-staging-vcluster
+  namespace: crossplane-system
+  labels:
+    team: beta
+    env: staging
+spec:
+  teamName: beta
+  envName: staging
+  region: eu-west-1
+  isolation: vcluster
+  sizing:
+    cpuLimit: "16"
+    memoryLimit: 32Gi
+    storageLimit: 200Gi
+    nodeCount: 3
+  budgetUSD: 800

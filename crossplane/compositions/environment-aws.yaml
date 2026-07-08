@@ -1,0 +1,228 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: environment-aws
+  labels:
+    provider: aws
+    environment: multi
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  compositeTypeRef:
+    apiVersion: platform.company.com/v1alpha1
+    kind: XEnvironment
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  # Patches propagate claim fields into each managed resource
+  patchSets:
+    - name: common-tags
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.teamName
+          toFieldPath: spec.forProvider.tags.team
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.envName
+          toFieldPath: spec.forProvider.tags.env
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.region
+          toFieldPath: spec.forProvider.region
+
+  resources:
+    # ── VPC ──────────────────────────────────────────────────────────────────
+    - name: vpc
+      base:
+        apiVersion: ec2.aws.upbound.io/v1beta1
+        kind: VPC
+        spec:
+          forProvider:
+            cidrBlock: 10.0.0.0/16
+            enableDnsHostnames: true
+            enableDnsSupport: true
+            tags:
+              managed-by: crossplane
+      patches:
+        - type: PatchSet
+          patchSetName: common-tags
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.region
+          toFieldPath: spec.forProvider.region
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.vpcId
+          toFieldPath: status.vpcId
+
+    # ── Public subnets (2 AZs) ───────────────────────────────────────────────
+    - name: subnet-public-a
+      base:
+        apiVersion: ec2.aws.upbound.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            cidrBlock: 10.0.1.0/24
+            availabilityZoneSelector:
+              matchLabels:
+                zone: a
+            mapPublicIpOnLaunch: true
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              kubernetes.io/role/elb: "1"
+      patches:
+        - type: PatchSet
+          patchSetName: common-tags
+
+    - name: subnet-public-b
+      base:
+        apiVersion: ec2.aws.upbound.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            cidrBlock: 10.0.2.0/24
+            availabilityZoneSelector:
+              matchLabels:
+                zone: b
+            mapPublicIpOnLaunch: true
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              kubernetes.io/role/elb: "1"
+      patches:
+        - type: PatchSet
+          patchSetName: common-tags
+
+    # ── Private subnets ───────────────────────────────────────────────────────
+    - name: subnet-private-a
+      base:
+        apiVersion: ec2.aws.upbound.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            cidrBlock: 10.0.11.0/24
+            availabilityZoneSelector:
+              matchLabels:
+                zone: a
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              kubernetes.io/role/internal-elb: "1"
+      patches:
+        - type: PatchSet
+          patchSetName: common-tags
+
+    - name: subnet-private-b
+      base:
+        apiVersion: ec2.aws.upbound.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            cidrBlock: 10.0.12.0/24
+            availabilityZoneSelector:
+              matchLabels:
+                zone: b
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              kubernetes.io/role/internal-elb: "1"
+      patches:
+        - type: PatchSet
+          patchSetName: common-tags
+
+    # ── EKS cluster ───────────────────────────────────────────────────────────
+    - name: eks-cluster
+      base:
+        apiVersion: eks.aws.upbound.io/v1beta1
+        kind: Cluster
+        spec:
+          forProvider:
+            version: "1.29"
+            roleArnSelector:
+              matchControllerRef: true
+            vpcConfig:
+              - endpointPrivateAccess: true
+                endpointPublicAccess: false
+                subnetIdSelector:
+                  matchControllerRef: true
+            kubernetesNetworkConfig:
+              - serviceIpv4Cidr: 172.20.0.0/16
+            logging:
+              - clusterLogging:
+                  - enabled: true
+                    types: [api, audit, authenticator, controllerManager, scheduler]
+            tags:
+              managed-by: crossplane
+      patches:
+        - type: PatchSet
+          patchSetName: common-tags
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.teamName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-cluster"
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.endpoint
+          toFieldPath: status.clusterEndpoint
+
+    # ── Managed node group ────────────────────────────────────────────────────
+    - name: node-group
+      base:
+        apiVersion: eks.aws.upbound.io/v1beta1
+        kind: NodeGroup
+        spec:
+          forProvider:
+            amiType: AL2_x86_64
+            capacityType: ON_DEMAND
+            instanceTypes: [t3.medium]
+            subnetIdSelector:
+              matchControllerRef: true
+              matchLabels:
+                access: private
+            clusterNameSelector:
+              matchControllerRef: true
+            nodeRoleArnSelector:
+              matchControllerRef: true
+            scalingConfig:
+              - minSize: 1
+                maxSize: 5
+            updateConfig:
+              - maxUnavailablePercentage: 33
+            labels:
+              managed-by: crossplane
+      patches:
+        - type: PatchSet
+          patchSetName: common-tags
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.sizing.nodeCount
+          toFieldPath: spec.forProvider.scalingConfig[0].desiredSize
+
+    # ── Kubernetes namespace in the cluster ───────────────────────────────────
+    - name: team-namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                labels:
+                  managed-by: crossplane
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.teamName
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-ns"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.teamName
+          toFieldPath: spec.forProvider.manifest.metadata.labels.team
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.envName
+          toFieldPath: spec.forProvider.manifest.metadata.labels.env
+        - type: ToCompositeFieldPath
+          fromFieldPath: spec.forProvider.manifest.metadata.name
+          toFieldPath: status.namespace

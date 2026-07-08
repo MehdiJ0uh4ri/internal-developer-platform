@@ -1,0 +1,69 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: internal-developer-platform
+  title: Internal Developer Platform
+  description: Self-service infrastructure and golden-path CI/CD for engineering teams
+  tags: [platform, infrastructure, devex]
+  annotations:
+    github.com/project-slug: your-org/idp
+    backstage.io/techdocs-ref: dir:.
+spec:
+  owner: platform-team
+  domain: platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: backstage-portal
+  title: Developer Portal
+  description: Backstage IDP portal — software catalog, templates, tech docs
+  tags: [backstage, portal, idp]
+  annotations:
+    github.com/project-slug: your-org/idp
+    backstage.io/kubernetes-id: backstage
+    argocd/app-name: backstage
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: internal-developer-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: crossplane-controller
+  title: Crossplane
+  description: Infrastructure provisioning via Kubernetes CRDs
+  tags: [crossplane, infrastructure, gitops]
+  annotations:
+    argocd/app-name: crossplane
+spec:
+  type: library
+  lifecycle: production
+  owner: platform-team
+  system: internal-developer-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: platform-team
+  title: Platform Team
+  description: Owns and operates the IDP
+spec:
+  type: team
+  profile:
+    displayName: Platform Team
+    email: platform@company.com
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: idp-templates
+  description: IDP self-service Backstage templates
+spec:
+  targets:
+    - ./templates/environment/template.yaml
+    - ./templates/new-service/template.yaml

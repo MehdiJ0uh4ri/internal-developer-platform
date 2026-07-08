@@ -1,0 +1,105 @@
+# Deploys the core platform stack in the correct order via sync waves.
+# Wave 0: CRDs  →  Wave 1: controllers  →  Wave 2: configuration
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-stack
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          # Wave 0 — CRDs first so controllers can reference them
+          - name: crossplane
+            namespace: crossplane-system
+            chart: crossplane
+            repoURL: https://charts.crossplane.io/stable
+            version: "1.15.0"
+            wave: "0"
+
+          - name: gatekeeper
+            namespace: gatekeeper-system
+            chart: gatekeeper
+            repoURL: https://open-policy-agent.github.io/gatekeeper/charts
+            version: "3.15.0"
+            wave: "0"
+
+          # Wave 1 — Crossplane providers (depend on Crossplane CRDs)
+          - name: crossplane-providers
+            namespace: crossplane-system
+            chart: ""
+            repoURL: https://github.com/your-org/idp.git
+            path: crossplane/providers
+            wave: "1"
+
+          - name: crossplane-xrds
+            namespace: crossplane-system
+            chart: ""
+            repoURL: https://github.com/your-org/idp.git
+            path: crossplane/xrds
+            wave: "1"
+
+          # Wave 2 — Compositions + policies (depend on XRDs and Gatekeeper)
+          - name: crossplane-compositions
+            namespace: crossplane-system
+            chart: ""
+            repoURL: https://github.com/your-org/idp.git
+            path: crossplane/compositions
+            wave: "2"
+
+          - name: gatekeeper-policies
+            namespace: gatekeeper-system
+            chart: ""
+            repoURL: https://github.com/your-org/idp.git
+            path: policies/gatekeeper
+            wave: "2"
+
+          - name: opencost
+            namespace: opencost
+            chart: opencost
+            repoURL: https://opencost.github.io/opencost-helm-chart
+            version: "1.31.0"
+            wave: "2"
+
+          - name: vcluster-operator
+            namespace: vcluster-operator
+            chart: vcluster-operator
+            repoURL: https://loft-sh.github.io/vcluster
+            version: "0.19.0"
+            wave: "2"
+
+  template:
+    metadata:
+      name: '{{name}}'
+      namespace: argocd
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{wave}}'
+    spec:
+      project: platform
+      source:
+        repoURL: '{{repoURL}}'
+        targetRevision: '{{version}}'
+        {{- if .chart}}
+        chart: '{{chart}}'
+        helm:
+          valuesFiles:
+            - '{{name}}/helm-values.yaml'
+        {{- else}}
+        path: '{{path}}'
+        {{- end}}
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

@@ -1,0 +1,19 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sBlockPort22
+metadata:
+  name: block-ssh-port
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: ['']
+        kinds: [Pod, Service]
+      - apiGroups: [apps]
+        kinds: [Deployment, StatefulSet, DaemonSet]
+    namespaceSelector:
+      matchExpressions:
+        - key: policy-enforcement
+          operator: In
+          values: [enabled]
+  parameters:
+    blockedPorts: [22, 2222]   # block both standard and alternate SSH ports

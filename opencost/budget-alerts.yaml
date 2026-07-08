@@ -1,0 +1,83 @@
+# PrometheusRule — fires when a team's monthly spend projection exceeds their
+# budget threshold (stored in the namespace annotation opencost.io/budget-usd).
+# Integrates with Alertmanager → Slack/PagerDuty.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: opencost-budget-alerts
+  namespace: opencost
+  labels:
+    app: opencost
+    role: alert-rules
+    # Prometheus Operator picks this up via ruleSelector
+    prometheus: kube-prometheus
+    release: prometheus
+spec:
+  groups:
+    - name: opencost.budget
+      interval: 1h
+      rules:
+        # ── Monthly spend approaching budget (80%) ────────────────────────────
+        - alert: TeamBudgetWarning
+          expr: |
+            (
+              sum by (namespace, label_team, label_env) (
+                opencost_monthly_cost_estimate{namespace!=""}
+              )
+            )
+            /
+            (
+              kube_namespace_annotations{annotation_opencost_io_budget_usd!="0"}
+              * on(namespace) group_left()
+              label_replace(
+                kube_namespace_annotations,
+                "budget", "$1", "annotation_opencost_io_budget_usd", "(.*)"
+              )
+            ) > 0.8
+          for: 2h
+          labels:
+            severity: warning
+            team: '{{ $labels.label_team }}'
+          annotations:
+            summary: "Team {{ $labels.label_team }} has used >80% of monthly budget"
+            description: >
+              Namespace {{ $labels.namespace }} projected monthly cost
+              is {{ $value | humanizePercentage }} of the allocated budget.
+            runbook: https://wiki.company.com/platform/budget-runbook
+
+        # ── Monthly spend exceeding budget (100%) ─────────────────────────────
+        - alert: TeamBudgetExceeded
+          expr: |
+            sum by (namespace, label_team, label_env) (
+              opencost_monthly_cost_estimate{namespace!=""}
+            ) > on(namespace) group_left()
+            max by (namespace) (
+              label_replace(
+                kube_namespace_annotations{annotation_opencost_io_budget_usd!=""},
+                "budget_value", "$1", "annotation_opencost_io_budget_usd", "(.*)"
+              )
+            )
+          for: 1h
+          labels:
+            severity: critical
+            team: '{{ $labels.label_team }}'
+          annotations:
+            summary: "Team {{ $labels.label_team }} has exceeded monthly budget"
+            description: >
+              Namespace {{ $labels.namespace }} projected spend ${{ $value | humanize }}
+              exceeds the budget. Investigate large workloads or orphaned resources.
+            runbook: https://wiki.company.com/platform/budget-runbook
+
+        # ── Unlabeled cost (no team/env label) ───────────────────────────────
+        - alert: UnattributedCostDetected
+          expr: |
+            sum(opencost_monthly_cost_estimate{label_team=""}) > 50
+          for: 6h
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Unattributed cloud spend detected (>$50/month)"
+            description: >
+              Resources without team/env labels are accumulating cost.
+              Run: kubectl get pods --all-namespaces -l '!team'

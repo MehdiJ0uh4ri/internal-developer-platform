@@ -1,0 +1,145 @@
+# Triggered when a PR is opened or re-opened with the "deploy-preview" label.
+# Creates a Crossplane claim + ArgoCD ApplicationSet entry for the PR environment.
+name: PR Environment — Create
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+
+jobs:
+  guard:
+    name: Check label
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.check.outputs.deploy }}
+    steps:
+      - id: check
+        run: |
+          if echo '${{ toJson(github.event.pull_request.labels.*.name) }}' | grep -q "deploy-preview"; then
+            echo "deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+  create-environment:
+    name: Provision PR environment
+    needs: guard
+    if: needs.guard.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BRANCH: ${{ github.head_ref }}
+      PR_SHA: ${{ github.event.pull_request.head.sha }}
+      NAMESPACE: pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          repository: your-org/idp-environments
+          token: ${{ secrets.GITOPS_TOKEN }}
+
+      - name: Create namespace manifest
+        run: |
+          mkdir -p pr-environments/pr-${{ env.PR_NUMBER }}
+          cat > pr-environments/pr-${{ env.PR_NUMBER }}/namespace.yaml << EOF
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: ${{ env.NAMESPACE }}
+            labels:
+              team: pr-preview
+              env: pr
+              cost-center: engineering
+              managed-by: idp
+              pr-number: "${{ env.PR_NUMBER }}"
+              policy-enforcement: enabled
+            annotations:
+              opencost.io/team: pr-preview
+              opencost.io/env: pr
+              opencost.io/budget-usd: "50"
+          EOF
+
+      - name: Create ResourceQuota for PR env
+        run: |
+          cat > pr-environments/pr-${{ env.PR_NUMBER }}/quota.yaml << EOF
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: pr-quota
+            namespace: ${{ env.NAMESPACE }}
+          spec:
+            hard:
+              requests.cpu: "1"
+              limits.cpu: "2"
+              requests.memory: 1Gi
+              limits.memory: 2Gi
+              pods: "10"
+          EOF
+
+      - name: Create Helm release manifest
+        run: |
+          # Pull the service name from the PR repo
+          SERVICE=$(cat service-name.txt 2>/dev/null || echo "${{ github.event.repository.name }}")
+          cat > pr-environments/pr-${{ env.PR_NUMBER }}/app.yaml << EOF
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: ${{ env.NAMESPACE }}
+            namespace: argocd
+            labels:
+              pr-environment: "true"
+              pr-number: "${{ env.PR_NUMBER }}"
+            annotations:
+              argocd.argoproj.io/sync-wave: "3"
+          spec:
+            project: tenants
+            source:
+              repoURL: https://github.com/${{ github.repository }}.git
+              targetRevision: ${{ env.PR_SHA }}
+              path: helm
+              helm:
+                parameters:
+                  - name: image.tag
+                    value: pr-${{ env.PR_NUMBER }}
+                  - name: nameOverride
+                    value: ${SERVICE}-pr-${{ env.PR_NUMBER }}
+                  - name: ingress.host
+                    value: pr-${{ env.PR_NUMBER }}.${{ github.event.repository.name }}.preview.company.com
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: ${{ env.NAMESPACE }}
+            syncPolicy:
+              automated:
+                prune: true
+                selfHeal: true
+              syncOptions:
+                - CreateNamespace=true
+          EOF
+
+      - name: Commit and push PR environment
+        run: |
+          git config user.name "IDP Bot"
+          git config user.email "idp-bot@company.com"
+          git add pr-environments/pr-${{ env.PR_NUMBER }}/
+          git commit -m "feat(pr-env): create preview for PR #${{ env.PR_NUMBER }} (${{ env.PR_BRANCH }})"
+          git push
+
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const previewUrl = `https://pr-${{ env.PR_NUMBER }}.${{ github.event.repository.name }}.preview.company.com`;
+            const argoUrl = `https://argocd.company.com/applications/pr-${{ env.PR_NUMBER }}`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Preview environment ready\n\n` +
+                `| | |\n|---|---|\n` +
+                `| **Preview URL** | ${previewUrl} |\n` +
+                `| **ArgoCD** | ${argoUrl} |\n` +
+                `| **Namespace** | \`pr-${{ env.PR_NUMBER }}\` |\n` +
+                `| **Image tag** | \`pr-${{ env.PR_NUMBER }}\` |\n\n` +
+                `This environment will be automatically destroyed when the PR is closed or merged.`
+            });

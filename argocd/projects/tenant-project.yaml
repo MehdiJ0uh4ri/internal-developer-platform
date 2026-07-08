@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tenants
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Tenant team workloads — scoped to team namespaces
+
+  sourceRepos:
+    - https://github.com/your-org/*
+
+  # Teams can only deploy to their own namespaces on the local cluster.
+  # vCluster VMs appear as separate clusters added dynamically.
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: '*-ns'
+    - server: https://kubernetes.default.svc
+      namespace: '*-staging'
+    - server: https://kubernetes.default.svc
+      namespace: '*-prod'
+
+  clusterResourceWhitelist: []
+
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: batch
+      kind: CronJob
+
+  roles:
+    - name: team-deployer
+      description: Teams can sync their own applications
+      policies:
+        - p, proj:tenants:team-deployer, applications, get, tenants/*, allow
+        - p, proj:tenants:team-deployer, applications, sync, tenants/*, allow
+        - p, proj:tenants:team-deployer, applications, override, tenants/*, allow
+      groups:
+        - developers

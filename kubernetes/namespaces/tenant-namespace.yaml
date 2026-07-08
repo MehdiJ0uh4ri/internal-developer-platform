@@ -1,0 +1,19 @@
+# Template namespace for a tenant team.
+# Applied via Crossplane Object or directly by ArgoCD.
+# All labels are required by the Gatekeeper RequiredLabels constraint.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: alpha-ns   # replaced per team by Crossplane patches
+  labels:
+    team: alpha
+    env: dev
+    cost-center: alpha
+    managed-by: crossplane
+    # Gatekeeper uses this to scope policies
+    policy-enforcement: enabled
+  annotations:
+    # OpenCost uses this for chargeback
+    opencost.io/team: alpha
+    opencost.io/env: dev
+    opencost.io/budget-usd: "300"

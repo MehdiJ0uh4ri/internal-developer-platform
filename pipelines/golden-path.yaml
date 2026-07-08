@@ -1,0 +1,252 @@
+# Golden path CI/CD pipeline — reusable workflow.
+# Services scaffolded from the Backstage template include this as a called workflow.
+# Stages: build → SAST/SCA → test → image push → deploy via ArgoCD image updater
+name: Golden Path CI/CD
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        required: true
+        type: string
+      team-name:
+        required: true
+        type: string
+      env-name:
+        required: false
+        type: string
+        default: dev
+      image-registry:
+        required: false
+        type: string
+        default: ghcr.io
+    secrets:
+      REGISTRY_TOKEN:
+        required: true
+      ARGOCD_TOKEN:
+        required: false
+
+env:
+  IMAGE: ${{ inputs.image-registry }}/${{ github.repository_owner }}/${{ inputs.service-name }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # ── Stage 1: Build ──────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,prefix=,format=long
+            type=ref,event=branch
+            type=ref,event=pr,prefix=pr-
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.image-registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Build and push image
+        id: push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  # ── Stage 2: SAST (static analysis) ────────────────────────────────────────
+  sast:
+    name: SAST
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ github.event.repository.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Auto-build for CodeQL
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ github.event.repository.language }}
+          upload: true
+
+      - name: Semgrep SAST scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/default
+            p/owasp-top-ten
+            p/secrets
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # ── Stage 3: SCA (dependency vulnerabilities) ───────────────────────────────
+  sca:
+    name: SCA — Dependency & Image Scan
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan dependencies with Trivy (SBOM + vuln)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          format: sarif
+          output: trivy-fs.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+      - name: Upload Trivy FS results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+      - name: Scan container image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+          format: sarif
+          output: trivy-image.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+      - name: Upload image scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - name: Verify image signature (cosign)
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}.*" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+
+  # ── Stage 4: Tests ──────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [sast, sca]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up test environment
+        run: docker compose -f docker-compose.test.yml up -d
+
+      - name: Run unit tests
+        run: make test-unit
+
+      - name: Run integration tests
+        run: make test-integration
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            coverage.xml
+            test-results.xml
+
+      - name: Comment coverage on PR
+        uses: MishaKav/pytest-coverage-comment@main
+        if: github.event_name == 'pull_request'
+        with:
+          pytest-xml-coverage-path: coverage.xml
+
+      - name: Tear down test environment
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
+
+  # ── Stage 5: OPA policy check on Helm chart ──────────────────────────────────
+  policy-check:
+    name: Policy Check (Conftest)
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render Helm chart
+        run: |
+          helm template ${{ inputs.service-name }} ./helm \
+            --set image.tag=${{ env.IMAGE_TAG }} \
+            --set teamName=${{ inputs.team-name }} \
+            --set envName=${{ inputs.env-name }} \
+            > /tmp/rendered.yaml
+
+      - name: Run Conftest with platform policies
+        uses: instrumenta/conftest-action@master
+        with:
+          files: /tmp/rendered.yaml
+          policy: https://github.com/your-org/idp/raw/main/policies/conftest
+
+  # ── Stage 6: Deploy ──────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy via ArgoCD Image Updater
+    runs-on: ubuntu-latest
+    needs: [test, policy-check]
+    # Only deploy from main / release branches; PRs stop at test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+    environment:
+      name: ${{ inputs.env-name }}
+      url: https://argocd.company.com/applications/${{ inputs.service-name }}-${{ inputs.env-name }}
+    steps:
+      - name: Trigger ArgoCD image update
+        uses: clowdhaus/argo-cd-action/@main
+        with:
+          command: app actions run ${{ inputs.service-name }}-${{ inputs.env-name }} restart --kind Deployment
+          options: --server argocd.company.com --auth-token ${{ secrets.ARGOCD_TOKEN }} --grpc-web
+
+      - name: Wait for rollout
+        run: |
+          argocd app wait ${{ inputs.service-name }}-${{ inputs.env-name }} \
+            --health \
+            --timeout 300 \
+            --server argocd.company.com \
+            --auth-token ${{ secrets.ARGOCD_TOKEN }} \
+            --grpc-web
+
+      - name: Post deployment summary
+        run: |
+          echo "### Deployment complete" >> $GITHUB_STEP_SUMMARY
+          echo "- Service: **${{ inputs.service-name }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: \`${{ env.IMAGE }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: **${{ inputs.env-name }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Team: **${{ inputs.team-name }}**" >> $GITHUB_STEP_SUMMARY

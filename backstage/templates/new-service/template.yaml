@@ -1,0 +1,91 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: golden-path-service
+  title: New Service (Golden Path)
+  description: >
+    Scaffolds a new service with: repo, Dockerfile, golden-path CI/CD pipeline,
+    Helm chart skeleton, ArgoCD Application, and Backstage catalog entry.
+  tags: [service, golden-path, ci-cd]
+spec:
+  owner: platform-team
+  type: service
+
+  parameters:
+    - title: Service info
+      required: [name, description, owner]
+      properties:
+        name:
+          title: Service name
+          type: string
+          pattern: '^[a-z][a-z0-9-]{1,40}$'
+        description:
+          title: Short description
+          type: string
+        owner:
+          title: Owning team
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            allowedKinds: [Group]
+        language:
+          title: Language / runtime
+          type: string
+          enum: [go, python, nodejs, java]
+          default: go
+
+    - title: Deployment target
+      required: [teamName, envName]
+      properties:
+        teamName:
+          title: Team namespace
+          type: string
+        envName:
+          title: Target environment
+          type: string
+          enum: [dev, staging, prod]
+          default: dev
+        port:
+          title: Service port
+          type: number
+          default: 8080
+
+  steps:
+    - id: fetch
+      name: Fetch golden-path skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton/${{ parameters.language }}
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          teamName: ${{ parameters.teamName }}
+          envName: ${{ parameters.envName }}
+          port: ${{ parameters.port }}
+
+    - id: publish
+      name: Create GitHub repository
+      action: publish:github
+      input:
+        allowedHosts: ['github.com']
+        description: ${{ parameters.description }}
+        repoUrl: github.com?repo=${{ parameters.name }}&owner=your-org
+        defaultBranch: main
+        repoVisibility: private
+        topics: [${{ parameters.language }}, ${{ parameters.teamName }}, golden-path]
+
+    - id: register
+      name: Register component in catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}

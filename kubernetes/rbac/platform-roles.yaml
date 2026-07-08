@@ -1,0 +1,70 @@
+# ClusterRoles for the platform — bound at cluster level for platform-team,
+# and within namespaces for individual teams.
+
+# ── Platform admin ────────────────────────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform:admin
+  labels:
+    managed-by: idp
+rules:
+  - apiGroups: ['*']
+    resources: ['*']
+    verbs: ['*']
+---
+# ── Platform viewer (SRE on-call, read-only) ──────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform:viewer
+  labels:
+    managed-by: idp
+rules:
+  - apiGroups: ['', apps, extensions, batch, autoscaling, networking.k8s.io]
+    resources: ['*']
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods, nodes]
+    verbs: [get, list]
+---
+# ── Team developer role (applied per namespace) ───────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: team:developer
+  namespace: alpha-ns   # duplicated per namespace by Crossplane
+  labels:
+    managed-by: idp
+rules:
+  - apiGroups: ['']
+    resources: [pods, pods/log, pods/exec, pods/portforward, services, configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [get, list]        # can read secrets, not create/delete
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+---
+# ── Team viewer (stakeholders, QA) ───────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: team:viewer
+  namespace: alpha-ns
+  labels:
+    managed-by: idp
+rules:
+  - apiGroups: ['', apps, batch]
+    resources: [pods, pods/log, deployments, replicasets, jobs, services, configmaps]
+    verbs: [get, list, watch]

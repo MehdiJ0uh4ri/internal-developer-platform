@@ -1,0 +1,98 @@
+app:
+  title: Internal Developer Platform
+  baseUrl: http://localhost:3000
+
+organization:
+  name: My Company
+
+backend:
+  baseUrl: http://localhost:7007
+  listen:
+    port: 7007
+  csp:
+    connect-src: ["'self'", 'http:', 'https:']
+  database:
+    client: pg
+    connection:
+      host: ${POSTGRES_HOST}
+      port: ${POSTGRES_PORT}
+      user: ${POSTGRES_USER}
+      password: ${POSTGRES_PASSWORD}
+
+integrations:
+  github:
+    - host: github.com
+      token: ${GITHUB_TOKEN}
+
+proxy:
+  '/argocd/api':
+    target: ${ARGOCD_URL}/api/v1/
+    changeOrigin: true
+    headers:
+      Cookie:
+        $env: ARGOCD_AUTH_TOKEN
+  '/opencost':
+    target: ${OPENCOST_URL}
+    changeOrigin: true
+
+techdocs:
+  builder: 'local'
+  generator:
+    runIn: 'docker'
+  publisher:
+    type: 'local'
+
+auth:
+  providers:
+    github:
+      development:
+        clientId: ${AUTH_GITHUB_CLIENT_ID}
+        clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
+
+scaffolder:
+  defaultAuthor:
+    name: Backstage Scaffolder
+    email: platform@company.com
+  defaultCommitMessage: "feat(scaffolder): bootstrap from template"
+
+catalog:
+  import:
+    entityFilename: catalog-info.yaml
+    pullRequestBranchName: backstage-integration
+  rules:
+    - allow: [Component, System, API, Resource, Location, Template, Group, User]
+  locations:
+    - type: url
+      target: https://github.com/your-org/idp/blob/main/backstage/catalog-info.yaml
+    - type: url
+      target: https://github.com/your-org/idp/blob/main/backstage/templates/environment/template.yaml
+    - type: url
+      target: https://github.com/your-org/idp/blob/main/backstage/templates/new-service/template.yaml
+
+kubernetes:
+  serviceLocatorMethod:
+    type: multiTenant
+  clusterLocatorMethods:
+    - type: config
+      clusters:
+        - url: ${K8S_API_URL}
+          name: platform-cluster
+          authProvider: serviceAccount
+          serviceAccountToken: ${K8S_SA_TOKEN}
+          caData: ${K8S_CA_DATA}
+          skipTLSVerify: false
+          customResources:
+            - group: 'argoproj.io'
+              apiVersion: 'v1alpha1'
+              plural: 'applications'
+            - group: 'pkg.crossplane.io'
+              apiVersion: 'v1'
+              plural: 'providers'
+
+argocd:
+  appLocatorMethods:
+    - type: config
+      instances:
+        - name: platform-argocd
+          url: ${ARGOCD_URL}
+          token: ${ARGOCD_TOKEN}

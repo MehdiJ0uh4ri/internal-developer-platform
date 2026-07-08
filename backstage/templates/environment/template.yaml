@@ -1,0 +1,121 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: provision-environment
+  title: Provision a Team Environment
+  description: >
+    Self-service: creates a Crossplane claim that provisions a VPC + EKS namespace
+    (or vCluster) + RBAC + ResourceQuota. ArgoCD syncs the resulting claim automatically.
+  tags: [infrastructure, environment, crossplane, self-service]
+spec:
+  owner: platform-team
+  type: environment
+
+  parameters:
+    - title: Environment details
+      required: [teamName, envName, envType]
+      properties:
+        teamName:
+          title: Team name
+          type: string
+          description: Lowercase slug (e.g. "payments", "search")
+          pattern: '^[a-z][a-z0-9-]{1,20}$'
+        envName:
+          title: Environment name
+          type: string
+          enum: [dev, staging, prod]
+          default: dev
+        envType:
+          title: Isolation type
+          type: string
+          enum: [namespace, vcluster]
+          default: namespace
+          description: >
+            namespace = shared cluster with RBAC + quota;
+            vcluster  = dedicated virtual cluster (stronger isolation)
+        region:
+          title: AWS region
+          type: string
+          enum: [us-east-1, eu-west-1, ap-southeast-1]
+          default: eu-west-1
+
+    - title: Resource sizing
+      properties:
+        cpuLimit:
+          title: CPU limit (cores per namespace)
+          type: string
+          default: '8'
+        memoryLimit:
+          title: Memory limit
+          type: string
+          default: 16Gi
+        storageLimit:
+          title: Storage limit
+          type: string
+          default: 100Gi
+        budgetMonthlyUSD:
+          title: Monthly budget alert threshold (USD)
+          type: number
+          default: 500
+
+    - title: Ownership & notifications
+      required: [ownerEmail]
+      properties:
+        ownerEmail:
+          title: Team lead email
+          type: string
+          format: email
+        slackChannel:
+          title: Slack channel for alerts
+          type: string
+          default: '#platform-alerts'
+
+  steps:
+    - id: fetch-skeleton
+      name: Render Crossplane claim
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          teamName: ${{ parameters.teamName }}
+          envName: ${{ parameters.envName }}
+          envType: ${{ parameters.envType }}
+          region: ${{ parameters.region }}
+          cpuLimit: ${{ parameters.cpuLimit }}
+          memoryLimit: ${{ parameters.memoryLimit }}
+          storageLimit: ${{ parameters.storageLimit }}
+          budgetMonthlyUSD: ${{ parameters.budgetMonthlyUSD }}
+          ownerEmail: ${{ parameters.ownerEmail }}
+          slackChannel: ${{ parameters.slackChannel }}
+
+    - id: publish
+      name: Open PR with the environment claim
+      action: publish:github:pull-request
+      input:
+        repoUrl: github.com?repo=idp-environments&owner=your-org
+        title: "feat(env): provision ${{ parameters.teamName }}-${{ parameters.envName }}"
+        branchName: "env/${{ parameters.teamName }}-${{ parameters.envName }}"
+        description: |
+          Self-service environment requested via Backstage.
+
+          - Team: `${{ parameters.teamName }}`
+          - Env: `${{ parameters.envName }}`
+          - Type: `${{ parameters.envType }}`
+          - Region: `${{ parameters.region }}`
+          - Budget: ${{ parameters.budgetMonthlyUSD }} USD/month
+
+          Once merged, ArgoCD will apply the Crossplane claim automatically.
+
+    - id: register
+      name: Register in catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.remoteUrl }}
+        catalogInfoPath: catalog-info.yaml
+
+  output:
+    links:
+      - title: Pull Request
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: ArgoCD App
+        url: https://argocd.company.com/applications/${{ parameters.teamName }}-${{ parameters.envName }}

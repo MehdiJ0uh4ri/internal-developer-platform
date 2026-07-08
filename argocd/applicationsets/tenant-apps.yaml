@@ -1,0 +1,56 @@
+# Watches the environments/ directory in the GitOps repo.
+# A new claim file (team-alpha-dev.yaml) automatically gets its own ArgoCD Application.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-environments
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: https://github.com/your-org/idp-environments.git
+        revision: main
+        directories:
+          - path: environments/*/*
+        # Each directory named environments/<team>/<env> becomes one Application
+
+  template:
+    metadata:
+      name: '{{path.basenameNormalized}}'
+      namespace: argocd
+      labels:
+        team: '{{path[1]}}'
+        env: '{{path[2]}}'
+      annotations:
+        # Drift detection: notify but don't auto-sync prod
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: platform-alerts
+        notifications.argoproj.io/subscribe.on-health-degraded.slack: platform-alerts
+    spec:
+      project: tenants
+      source:
+        repoURL: https://github.com/your-org/idp-environments.git
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{path[1]}}-ns'
+      syncPolicy:
+        automated:
+          prune: true
+          # prod environments require manual sync approval
+          selfHeal: '{{ne path[2] "prod"}}'
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas  # HPA manages replicas; ignore drift

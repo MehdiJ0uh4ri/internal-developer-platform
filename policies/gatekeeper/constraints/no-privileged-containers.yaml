@@ -1,0 +1,39 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sNoPrivilegedContainers
+metadata:
+  name: no-privileged-containers
+spec:
+  enforcementAction: deny      # hard block at admission
+  match:
+    kinds:
+      - apiGroups: ['']
+        kinds: [Pod]
+    namespaceSelector:
+      matchExpressions:
+        - key: policy-enforcement
+          operator: In
+          values: [enabled]
+    excludedNamespaces:
+      - kube-system
+      - crossplane-system
+      - gatekeeper-system
+      - cert-manager
+  parameters:
+    allowedUsers: []   # no exceptions by default
+---
+# Audit-only version that scans existing resources and surfaces violations
+# in the Gatekeeper audit report without blocking.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sNoPrivilegedContainers
+metadata:
+  name: no-privileged-containers-audit
+spec:
+  enforcementAction: warn
+  match:
+    kinds:
+      - apiGroups: ['']
+        kinds: [Pod]
+    namespaces:
+      - kube-system
+  parameters:
+    allowedUsers: [0]   # kube-system may have root containers; warn only

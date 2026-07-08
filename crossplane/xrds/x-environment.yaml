@@ -1,0 +1,74 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xenvironments.platform.company.com
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  group: platform.company.com
+  names:
+    kind: XEnvironment
+    plural: xenvironments
+  # Teams use the namespaced claim kind
+  claimNames:
+    kind: Environment
+    plural: environments
+
+  defaultCompositionRef:
+    name: environment-aws
+
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [teamName, envName, region]
+              properties:
+                teamName:
+                  type: string
+                  description: Lowercase team identifier; becomes a label on all resources
+                envName:
+                  type: string
+                  enum: [dev, staging, prod]
+                region:
+                  type: string
+                  description: AWS region
+                isolation:
+                  type: string
+                  enum: [namespace, vcluster]
+                  default: namespace
+                sizing:
+                  type: object
+                  properties:
+                    cpuLimit:
+                      type: string
+                      default: "8"
+                    memoryLimit:
+                      type: string
+                      default: "16Gi"
+                    storageLimit:
+                      type: string
+                      default: "100Gi"
+                    nodeCount:
+                      type: integer
+                      default: 2
+                budgetUSD:
+                  type: number
+                  description: Monthly budget alert threshold in USD
+                  default: 500
+            status:
+              type: object
+              properties:
+                vpcId:
+                  type: string
+                clusterEndpoint:
+                  type: string
+                namespace:
+                  type: string
+                ready:
+                  type: boolean

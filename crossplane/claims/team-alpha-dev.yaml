@@ -1,0 +1,24 @@
+# Example claim — teams submit this via a Backstage PR.
+# ArgoCD watches the environments/ folder in the gitops repo and applies it.
+apiVersion: platform.company.com/v1alpha1
+kind: Environment
+metadata:
+  name: alpha-dev
+  namespace: crossplane-system
+  labels:
+    team: alpha
+    env: dev
+spec:
+  teamName: alpha
+  envName: dev
+  region: eu-west-1
+  isolation: namespace
+  sizing:
+    cpuLimit: "8"
+    memoryLimit: 16Gi
+    storageLimit: 100Gi
+    nodeCount: 2
+  budgetUSD: 300
+  compositionSelector:
+    matchLabels:
+      provider: aws

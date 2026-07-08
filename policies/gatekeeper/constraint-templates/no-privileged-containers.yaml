@@ -1,0 +1,88 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8snoprivilegedcontainers
+  annotations:
+    description: >
+      Blocks containers that run as root (uid 0), request privileged mode,
+      or do not set runAsNonRoot: true. Applies to init containers too.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sNoPrivilegedContainers
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedUsers:
+              type: array
+              description: UID values explicitly permitted (e.g. legacy apps)
+              items:
+                type: integer
+
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8snoprivilegedcontainers
+
+        import future.keywords.in
+
+        violation[{"msg": msg}] {
+          container := input_containers[_]
+          is_privileged(container)
+          not allowed_uid(container)
+          msg := sprintf(
+            "Container <%v> is not allowed: privileged mode or running as root",
+            [container.name]
+          )
+        }
+
+        violation[{"msg": msg}] {
+          container := input_containers[_]
+          not has_run_as_non_root(container)
+          not allowed_uid(container)
+          msg := sprintf(
+            "Container <%v> must set securityContext.runAsNonRoot: true",
+            [container.name]
+          )
+        }
+
+        violation[{"msg": msg}] {
+          container := input_containers[_]
+          run_as_user_is_root(container)
+          not allowed_uid(container)
+          msg := sprintf(
+            "Container <%v> must not set runAsUser: 0",
+            [container.name]
+          )
+        }
+
+        # ── helpers ───────────────────────────────────────────────────────────
+
+        input_containers[c] {
+          c := input.review.object.spec.containers[_]
+        }
+        input_containers[c] {
+          c := input.review.object.spec.initContainers[_]
+        }
+        input_containers[c] {
+          c := input.review.object.spec.ephemeralContainers[_]
+        }
+
+        is_privileged(container) {
+          container.securityContext.privileged == true
+        }
+
+        has_run_as_non_root(container) {
+          container.securityContext.runAsNonRoot == true
+        }
+
+        run_as_user_is_root(container) {
+          container.securityContext.runAsUser == 0
+        }
+
+        allowed_uid(container) {
+          uid := container.securityContext.runAsUser
+          uid in input.parameters.allowedUsers
+        }

@@ -1,0 +1,82 @@
+# vCluster helm values — deployed per team when isolation: vcluster is requested.
+# Each vCluster gets its own virtual API server + scheduler running as pods.
+vcluster:
+  image:
+    repository: ghcr.io/loft-sh/vcluster
+    tag: "0.19.0"
+
+sync:
+  # Sync these resource types from virtual to host cluster
+  services:
+    enabled: true
+  configmaps:
+    enabled: true
+  secrets:
+    enabled: true
+  endpoints:
+    enabled: true
+  pods:
+    enabled: true
+    ephemeralContainers: false
+    status: true
+  deployments:
+    enabled: false   # keep workload state virtual-side only
+  ingresses:
+    enabled: true
+  storageclasses:
+    enabled: false
+  hoststorageclasses:
+    enabled: true
+  persistentvolumeclaims:
+    enabled: true
+  priorityclasses:
+    enabled: false
+  networkpolicies:
+    enabled: true
+
+# Resource limits for the vCluster control-plane pod itself
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# Host namespace where the vCluster control plane runs
+namespaceLabels:
+  managed-by: idp
+  isolation: vcluster
+
+# Syncer security — no privilege escalation
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 12345
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+# Service account — IRSA optional
+serviceAccount:
+  create: true
+  annotations: {}
+
+# Network policies isolate the vCluster namespace on the host
+isolation:
+  enabled: true
+  networkPolicy:
+    enabled: true
+    outgoingConnections:
+      ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+          - 169.254.0.0/16   # block AWS metadata
+          - 100.64.0.0/10
+
+# Storage
+storage:
+  persistence: true
+  size: 5Gi
+
+# Replicas — HA with 3 API servers in prod
+replicas: 1   # set to 3 for prod vClusters

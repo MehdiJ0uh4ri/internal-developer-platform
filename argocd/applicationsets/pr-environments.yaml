@@ -1,0 +1,57 @@
+# Ephemeral PR environments — one Application per open PR.
+# Created by the pr-environment-open.yaml pipeline; removed by pr-environment-close.yaml.
+# The PullRequest generator polls GitHub and creates/deletes Applications automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: pr-environments
+  namespace: argocd
+spec:
+  generators:
+    - pullRequest:
+        github:
+          owner: your-org
+          repo: idp-environments
+          tokenRef:
+            secretName: github-token
+            key: token
+          # Only PRs with this label get an ephemeral environment
+          labels:
+            - deploy-preview
+        requeueAfterSeconds: 60
+
+  template:
+    metadata:
+      name: 'pr-{{number}}-{{branch}}'
+      namespace: argocd
+      labels:
+        pr-environment: "true"
+        pr-number: '{{number}}'
+      annotations:
+        # Auto-cleanup: ArgoCD removes the App when the PR closes
+        argocd.argoproj.io/sync-wave: "3"
+    spec:
+      project: tenants
+      source:
+        repoURL: https://github.com/your-org/idp-environments.git
+        targetRevision: '{{head_sha}}'
+        path: pr-environments/template
+        helm:
+          parameters:
+            - name: prNumber
+              value: '{{number}}'
+            - name: branch
+              value: '{{branch}}'
+            - name: namespace
+              value: 'pr-{{number}}'
+            - name: image.tag
+              value: 'pr-{{number}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'pr-{{number}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

@@ -1,0 +1,48 @@
+# Enforce required labels on Namespaces and Deployments.
+# team + env are mandatory for OpenCost chargeback.
+# cost-center is mandatory for budget alerts.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata:
+  name: namespace-required-labels
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: ['']
+        kinds: [Namespace]
+    labelSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kube-public
+            - kube-node-lease
+            - crossplane-system
+            - gatekeeper-system
+            - cert-manager
+            - opencost
+            - argocd
+  parameters:
+    labels: [team, env, cost-center, managed-by]
+    message: "Namespace is missing required labels for cost attribution"
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata:
+  name: deployment-required-labels
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [apps]
+        kinds: [Deployment, StatefulSet]
+    namespaceSelector:
+      matchExpressions:
+        - key: policy-enforcement
+          operator: In
+          values: [enabled]
+  parameters:
+    labels: [team, env, app]
+    message: "Workload is missing required labels for observability and cost attribution"

@@ -1,0 +1,39 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws:v0.46.0
+  packagePullPolicy: IfNotPresent
+  revisionActivationPolicy: Automatic
+  controllerConfigRef:
+    name: provider-aws-config
+---
+apiVersion: pkg.crossplane.io/v1alpha1
+kind: ControllerConfig
+metadata:
+  name: provider-aws-config
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  serviceAccountName: provider-aws
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 2000
+    fsGroup: 2000
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: true
+---
+# IRSA: the SA is annotated by the provider, bound to this IAM role
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: provider-aws
+  namespace: crossplane-system
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::${AWS_ACCOUNT_ID}:role/CrossplaneProviderRole
