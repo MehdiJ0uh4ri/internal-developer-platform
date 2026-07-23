@@ -82,6 +82,7 @@ ArgoCD watches this Git repository. When a file changes, it applies the change t
 When you delete a file, it removes the corresponding resources. This is called GitOps: Git is
 the single source of truth for what should be running.
 
+
 ArgoCD also does **drift detection** — if someone manually changes something in the cluster,
 ArgoCD detects the difference and either alerts you or reverts it, depending on the environment.
 
