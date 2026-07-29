@@ -258,6 +258,73 @@ labels shows up in the **Unattributed Cost** panel and triggers a platform alert
 
 ---
 
+## Tagging strategy
+
+Labels are the backbone of cost attribution, policy scoping, and alert routing. Gatekeeper
+enforces that they exist; this section explains what each one means and what it's used for.
+
+### Required labels (enforced — missing labels block the resource)
+
+| Label | Example value | Used for |
+|---|---|---|
+| `team` | `payments` | OpenCost chargeback, Slack alert routing, RBAC |
+| `env` | `dev` / `staging` / `prod` | Cost split by environment, ArgoCD auto-sync rules |
+| `cost-center` | `payments` | Finance reporting, budget ownership |
+| `managed-by` | `crossplane` or `idp` | Identifying platform-managed vs manually created resources |
+
+### Recommended labels (not enforced, but used by dashboards)
+
+| Label | Example value | Used for |
+|---|---|---|
+| `app` | `checkout-api` | Grouping pods belonging to the same service |
+| `version` | `v1.4.2` | Canary deployments, rollback targeting |
+| `component` | `frontend` / `backend` / `worker` | Topology views in Backstage |
+
+### AWS resource tags (applied automatically by Crossplane)
+
+All AWS resources created via a Crossplane claim inherit these tags:
+
+```
+team        = <teamName from the claim>
+env         = <envName from the claim>
+managed-by  = crossplane
+cost-center = <teamName from the claim>
+```
+
+This means Cost Explorer in AWS shows the same breakdown as the OpenCost Grafana dashboard.
+Both are driven by the same label values from the same claim.
+
+### Applying labels to your workloads
+
+Labels must appear in **two places** in a Deployment — the Deployment metadata AND the pod
+template spec. Only the pod-template labels reach OpenCost; only the Deployment-level labels
+reach Gatekeeper. Both need them:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  labels:           # Gatekeeper checks these
+    team: payments
+    env: dev
+    app: checkout-api
+    cost-center: payments
+spec:
+  selector:
+    matchLabels:
+      app: checkout-api
+  template:
+    metadata:
+      labels:       # OpenCost reads these from the running pods
+        team: payments
+        env: dev
+        app: checkout-api
+        cost-center: payments
+```
+
+---
+
 ## Common problems and fixes
 
 **My deployment is stuck in `Progressing`**
