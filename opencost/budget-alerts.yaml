@@ -1,3 +1,54 @@
+# Recording rules — pre-compute cost aggregations so alert expressions stay fast
+# and dashboards don't time out on large metric cardinalities.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: opencost-recording-rules
+  namespace: opencost
+  labels:
+    app: opencost
+    role: recording-rules
+    prometheus: kube-prometheus
+    release: prometheus
+spec:
+  groups:
+    - name: opencost.recording
+      interval: 5m
+      rules:
+        - record: opencost:monthly_cost:by_team
+          expr: |
+            sum by (label_team) (
+              opencost_monthly_cost_estimate{namespace!=""}
+            )
+
+        - record: opencost:monthly_cost:by_team_env
+          expr: |
+            sum by (label_team, label_env) (
+              opencost_monthly_cost_estimate{namespace!=""}
+            )
+
+        - record: opencost:daily_cost:by_team
+          expr: |
+            sum by (label_team) (
+              increase(opencost_daily_cost_total{namespace!=""}[1d])
+            )
+
+        - record: opencost:cpu_cost:by_namespace
+          expr: |
+            sum by (namespace, label_team) (
+              opencost_cpu_cost_estimate
+            )
+
+        - record: opencost:memory_cost:by_namespace
+          expr: |
+            sum by (namespace, label_team) (
+              opencost_memory_cost_estimate
+            )
+
+        - record: opencost:unattributed_cost:total
+          expr: |
+            sum(opencost_monthly_cost_estimate{label_team=""})
+---
 # PrometheusRule — fires when a team's monthly spend projection exceeds their
 # budget threshold (stored in the namespace annotation opencost.io/budget-usd).
 # Integrates with Alertmanager → Slack/PagerDuty.
