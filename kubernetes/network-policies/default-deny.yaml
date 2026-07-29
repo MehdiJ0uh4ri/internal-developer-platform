@@ -1,0 +1,103 @@
+# Default-deny all ingress and egress for tenant namespaces.
+# Applied automatically when a namespace is provisioned via Crossplane.
+# Teams must add explicit allow policies for traffic their services need.
+#
+# Allows kept open by default:
+#   - DNS (UDP/TCP 53) to kube-dns — without this pods can't resolve service names
+#   - Ingress from the same namespace (intra-service calls within the team)
+#   - Ingress from the ingress-nginx namespace (so the load balancer can reach pods)
+---
+# ── Deny all ingress ──────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: alpha-ns   # patched per team by Crossplane
+  labels:
+    managed-by: idp
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# ── Deny all egress ───────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: alpha-ns
+  labels:
+    managed-by: idp
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+---
+# ── Allow DNS resolution (required for all pods) ─────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: alpha-ns
+  labels:
+    managed-by: idp
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# ── Allow intra-namespace traffic (pods talking to each other) ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: alpha-ns
+  labels:
+    managed-by: idp
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# ── Allow ingress from nginx ingress controller ───────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-nginx
+  namespace: alpha-ns
+  labels:
+    managed-by: idp
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+---
+# ── Allow egress to the K8s API server (for service-account token refresh) ───
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kube-apiserver
+  namespace: alpha-ns
+  labels:
+    managed-by: idp
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
