@@ -74,7 +74,40 @@ jobs:
           provenance: true
           sbom: true
 
-  # ── Stage 2: SAST (static analysis) ────────────────────────────────────────
+  # ── Stage 2: Sign image (cosign keyless, OIDC) ─────────────────────────────
+  sign:
+    name: Sign image
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write    # required for OIDC token → cosign keyless signing
+      packages: write
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.2.4
+
+      - name: Sign image with keyless OIDC
+        run: |
+          cosign sign --yes \
+            --rekor-url https://rekor.sigstore.dev \
+            ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+
+      - name: Generate and attach CycloneDX SBOM
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            anchore/syft:latest \
+            ${{ env.IMAGE }}@${{ needs.build.outputs.digest }} \
+            -o cyclonedx-json > sbom.cdx.json
+
+          cosign attest --yes \
+            --type cyclonedx \
+            --predicate sbom.cdx.json \
+            ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+
+  # ── Stage 3: SAST (static analysis) ────────────────────────────────────────
   sast:
     name: SAST
     runs-on: ubuntu-latest

@@ -1,0 +1,107 @@
+# ArgoCD notifications — Slack templates and triggers.
+# Applied as a ConfigMap in the argocd namespace; the notifications controller picks it up.
+# Requires: notifications-secret with slack-token key.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  # ── Service connections ────────────────────────────────────────────────────
+  service.slack: |
+    token: $slack-token
+    username: ArgoCD
+    icon: ":argo:"
+
+  # ── Templates ─────────────────────────────────────────────────────────────
+  template.app-sync-succeeded: |
+    slack:
+      attachments: |
+        [{
+          "color": "#18be52",
+          "title": "✅ {{ .app.metadata.name }} synced",
+          "title_link": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}",
+          "fields": [
+            {"title": "Team",        "value": "{{ index .app.metadata.labels \"team\" }}", "short": true},
+            {"title": "Environment", "value": "{{ index .app.metadata.labels \"env\" }}",  "short": true},
+            {"title": "Revision",    "value": "{{ .app.status.sync.revision | truncate 7 }}", "short": true},
+            {"title": "Sync status", "value": "{{ .app.status.sync.status }}",             "short": true}
+          ]
+        }]
+
+  template.app-sync-failed: |
+    slack:
+      attachments: |
+        [{
+          "color": "#E96D76",
+          "title": "❌ {{ .app.metadata.name }} sync FAILED",
+          "title_link": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}",
+          "fields": [
+            {"title": "Team",        "value": "{{ index .app.metadata.labels \"team\" }}", "short": true},
+            {"title": "Environment", "value": "{{ index .app.metadata.labels \"env\" }}",  "short": true},
+            {"title": "Error",       "value": "{{ range .app.status.conditions }}{{ .message }}{{ end }}", "short": false}
+          ]
+        }]
+
+  template.app-health-degraded: |
+    slack:
+      attachments: |
+        [{
+          "color": "#f4c030",
+          "title": "⚠️ {{ .app.metadata.name }} health DEGRADED",
+          "title_link": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}",
+          "fields": [
+            {"title": "Team",          "value": "{{ index .app.metadata.labels \"team\" }}",  "short": true},
+            {"title": "Environment",   "value": "{{ index .app.metadata.labels \"env\" }}",   "short": true},
+            {"title": "Health status", "value": "{{ .app.status.health.status }}",            "short": true},
+            {"title": "Message",       "value": "{{ .app.status.health.message }}",           "short": false}
+          ]
+        }]
+
+  template.app-drift-detected: |
+    slack:
+      attachments: |
+        [{
+          "color": "#f4c030",
+          "title": "🔀 Drift detected — {{ .app.metadata.name }}",
+          "title_link": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}",
+          "text": "Live state diverges from Git. ArgoCD will self-heal if auto-sync is enabled.",
+          "fields": [
+            {"title": "Team", "value": "{{ index .app.metadata.labels \"team\" }}", "short": true},
+            {"title": "Env",  "value": "{{ index .app.metadata.labels \"env\" }}",  "short": true}
+          ]
+        }]
+
+  # ── Triggers ──────────────────────────────────────────────────────────────
+  trigger.on-sync-succeeded: |
+    - when: app.status.operationState.phase in ['Succeeded']
+      send: [app-sync-succeeded]
+
+  trigger.on-sync-failed: |
+    - when: app.status.operationState.phase in ['Error', 'Failed']
+      send: [app-sync-failed]
+
+  trigger.on-health-degraded: |
+    - when: app.status.health.status == 'Degraded'
+      send: [app-health-degraded]
+
+  trigger.on-sync-status-unknown: |
+    - when: app.status.sync.status == 'OutOfSync'
+      oncePer: app.status.operationState?.syncResult?.revision
+      send: [app-drift-detected]
+
+  # ── Default subscriptions ─────────────────────────────────────────────────
+  # Overridden per-app via annotations:
+  #   notifications.argoproj.io/subscribe.on-sync-failed.slack: platform-alerts
+  defaultTriggers: |
+    - on-sync-failed
+    - on-health-degraded
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-notifications-secret
+  namespace: argocd
+type: Opaque
+stringData:
+  slack-token: ${SLACK_BOT_TOKEN}

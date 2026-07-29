@@ -1,0 +1,22 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sBlockHostPath
+metadata:
+  name: block-host-path
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: ['']
+        kinds: [Pod]
+      - apiGroups: [apps]
+        kinds: [Deployment, StatefulSet, DaemonSet]
+    namespaceSelector:
+      matchExpressions:
+        - key: policy-enforcement
+          operator: In
+          values: [enabled]
+  parameters:
+    # No allowed paths in tenant namespaces — hostPath is never needed there.
+    # Platform system agents (e.g. Fluent Bit, node-exporter) run in kube-system
+    # which is excluded from this constraint by the namespaceSelector above.
+    allowedPaths: []

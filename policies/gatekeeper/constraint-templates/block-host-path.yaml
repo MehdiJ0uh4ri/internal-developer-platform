@@ -1,0 +1,52 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8sblockhostpath
+  annotations:
+    description: >
+      Blocks volumes of type hostPath. hostPath mounts expose the host node's
+      filesystem to the container — a common container escape vector. Teams should
+      use PersistentVolumeClaims backed by CSI drivers instead.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sBlockHostPath
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedPaths:
+              type: array
+              description: >
+                hostPath prefixes explicitly permitted (e.g. read-only /proc mounts
+                for system agents). Empty list means all hostPaths are blocked.
+              items:
+                type: object
+                properties:
+                  pathPrefix:
+                    type: string
+                  readOnly:
+                    type: boolean
+
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sblockhostpath
+
+        import future.keywords.in
+
+        violation[{"msg": msg}] {
+          volume := input.review.object.spec.volumes[_]
+          volume.hostPath
+          not path_is_allowed(volume.hostPath.path)
+          msg := sprintf(
+            "Volume <%v> uses hostPath <%v> which is not allowed. Use a PVC instead.",
+            [volume.name, volume.hostPath.path]
+          )
+        }
+
+        path_is_allowed(path) {
+          allowed := input.parameters.allowedPaths[_]
+          startswith(path, allowed.pathPrefix)
+        }

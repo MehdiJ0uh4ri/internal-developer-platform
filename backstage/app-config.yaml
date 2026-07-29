@@ -96,3 +96,37 @@ argocd:
         - name: platform-argocd
           url: ${ARGOCD_URL}
           token: ${ARGOCD_TOKEN}
+
+costInsights:
+  engineerCostAggregationEnabled: true
+  products:
+    computeEngine:
+      name: Compute
+      icon: compute
+    cloudStorage:
+      name: Storage
+      icon: storage
+    dataflow:
+      name: Network
+      icon: data
+  metrics:
+    DAU:
+      name: Daily Active Users
+      default: true
+  currencies:
+    - kind: USD
+      label: US Dollars
+      unit: dollar
+
+# Webhook config for ArgoCD notifications back into Backstage
+signals:
+  enabled: true
+
+notifications:
+  processors:
+    webhook:
+      - id: backstage-events
+        method: POST
+        url: http://localhost:7007/api/signals/webhook
+        headers:
+          Content-Type: application/json
