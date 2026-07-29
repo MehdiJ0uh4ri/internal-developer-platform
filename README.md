@@ -41,6 +41,20 @@ idp/
 4. Teams create environments via Backstage -> Crossplane claim -> ArgoCD app
 ```
 
+## Prerequisites
+
+| Tool | Minimum version | Install |
+|---|---|---|
+| kubectl | 1.29 | https://kubernetes.io/docs/tasks/tools/ |
+| helm | 3.14 | https://helm.sh/docs/intro/install/ |
+| argocd CLI | 2.10 | `brew install argocd` |
+| crossplane CLI | 1.15 | `curl -sL https://raw.githubusercontent.com/crossplane/crossplane/master/install.sh \| sh` |
+| cosign | 2.2 | `brew install cosign` |
+| conftest | 0.50 | `brew install conftest` |
+
+AWS credentials with permissions to create IAM roles, EKS clusters, VPCs, and ECR repos must be
+available in the environment where Crossplane runs (via IRSA on EKS).
+
 ## Key design decisions
 
 - Crossplane as the infrastructure API: teams request environments via K8s CRDs, not
