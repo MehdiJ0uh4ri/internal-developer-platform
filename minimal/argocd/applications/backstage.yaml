@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://backstage.github.io/charts
+    chart: backstage
+    targetRevision: 2.10.2
+    helm:
+      values: |
+        backstage:
+          replicas: 1
+          revisionHistoryLimit: 1
+          image:
+            pullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          appConfig:
+            app:
+              title: Internal Developer Platform (Minimal)
+              baseUrl: http://idp.localhost:8080
+            backend:
+              baseUrl: http://idp.localhost:8080
+              listen:
+                port: 7007
+              database:
+                client: better-sqlite3
+                connection: ':memory:'
+            catalog:
+              locations:
+                - type: url
+                  target: https://raw.githubusercontent.com/MehdiJ0uh4ri/internal-developer-platform/minimal/base/demo-app/catalog-info.yaml
+        ingress:
+          enabled: true
+          className: traefik
+          host: idp.localhost
+          path: /
+          tls:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: backstage
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
