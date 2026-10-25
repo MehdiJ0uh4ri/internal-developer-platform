@@ -10,15 +10,17 @@ local development and evaluation, not production use.
 ```text
 minimal/
   k3d-config.yaml                   # Single-node cluster and local HTTP port
+  kustomization.yaml                # Root Kustomize build for the demo Application
   argocd/
     bootstrap/app-of-apps.yaml      # Root GitOps Application
     applications/                  # Backstage and demo app Applications
     helm-values.yaml                # Resource-conscious Argo CD install
+  base/demo-app/                    # Reusable sample app Kubernetes resources
   overlays/demo-app/                # Local ingress and small resource patch
-base/demo-app/                      # Reusable sample app Kubernetes resources
 scripts/
+  wsl-up.sh                         # WSL preflight, bootstrap, and readiness check
   bootstrap-minimal.ps1             # Windows bootstrap
-  bootstrap-minimal.sh              # macOS/Linux/WSL bootstrap
+  bootstrap-minimal.sh              # macOS/Linux bootstrap
   teardown-minimal.ps1              # Windows teardown
   teardown-minimal.sh               # macOS/Linux/WSL teardown
 ```
@@ -33,7 +35,12 @@ workflows.
 
 - 8 GB RAM; close other memory-heavy workloads while starting the cluster.
 - Docker Desktop (Windows/macOS) or Docker Engine (Linux), running.
-- `k3d`, `kubectl`, Helm 3, and Git installed and on `PATH`.
+- For WSL 2, Docker Desktop's WSL integration must be enabled for your
+  distribution, or Docker Engine must be running inside WSL.
+- `k3d` ([install](https://k3d.io/stable/#installation)), `kubectl`
+  ([install](https://kubernetes.io/docs/tasks/tools/)), Helm 3
+  ([install](https://helm.sh/docs/intro/install/)), and Git installed and on
+  `PATH`.
 - Network access to GitHub, the Helm chart repositories, and container
   registries.
 - The `minimal` branch pushed to the configured GitHub repository. Argo CD
@@ -66,7 +73,39 @@ From the repository root:
 .\scripts\bootstrap-minimal.ps1
 ```
 
-**macOS, Linux, or WSL**
+**WSL 2**
+
+In Docker Desktop on Windows, enable **Settings → Resources → WSL Integration**
+for your distribution, then verify Docker is available inside WSL:
+
+```bash
+docker info
+```
+
+Clone the branch inside the WSL filesystem for better performance (or `cd` to
+an existing checkout):
+
+```bash
+mkdir -p ~/src
+cd ~/src
+git clone --branch minimal https://github.com/MehdiJ0uh4ri/internal-developer-platform.git
+cd internal-developer-platform
+```
+
+Install `k3d`, `kubectl`, and Helm 3 if they are not already on your WSL `PATH`.
+The official installation instructions are linked in the prerequisites above.
+Then run:
+
+```bash
+bash scripts/wsl-up.sh
+```
+
+The WSL script checks Docker, required tools, and that the current `minimal`
+branch is clean and pushed to GitHub; it then bootstraps the cluster, waits for
+both Argo CD applications, and checks that both local URLs respond. On success
+it prints the Argo CD port-forward command and initial admin password command.
+
+**macOS or Linux**
 
 ```bash
 bash scripts/bootstrap-minimal.sh
@@ -74,8 +113,9 @@ bash scripts/bootstrap-minimal.sh
 
 The scripts create or reuse the `idp-minimal` k3d cluster, install the
 single-replica Argo CD chart with reduced resource requests, and apply the root
-Application. Argo CD then reconciles Backstage and the sample app from this
-branch. First-time image pulls and application sync can take several minutes.
+Application. The WSL entry point also waits for Backstage and the sample app to
+be healthy and checks both local URLs. First-time image pulls can take several
+minutes.
 
 Track deployment:
 

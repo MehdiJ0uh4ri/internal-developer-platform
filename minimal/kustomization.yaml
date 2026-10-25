@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - base/demo-app
+  - overlays/demo-app/ingress.yaml
+patches:
+  - path: overlays/demo-app/deployment-patch.yaml

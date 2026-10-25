@@ -37,7 +37,7 @@ spec:
             catalog:
               locations:
                 - type: url
-                  target: https://raw.githubusercontent.com/MehdiJ0uh4ri/internal-developer-platform/minimal/base/demo-app/catalog-info.yaml
+                  target: https://raw.githubusercontent.com/MehdiJ0uh4ri/internal-developer-platform/minimal/minimal/base/demo-app/catalog-info.yaml
         ingress:
           enabled: true
           className: traefik
