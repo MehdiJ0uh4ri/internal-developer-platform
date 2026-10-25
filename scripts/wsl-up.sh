@@ -54,6 +54,7 @@ wait_for_application() {
   local name="$1"
   local deadline=$((SECONDS + 1800))
   local state=""
+  local details=""
 
   printf '\nWaiting for Argo CD application %s to become Synced and Healthy' "$name"
   while (( SECONDS < deadline )); do
@@ -62,6 +63,16 @@ wait_for_application() {
       && [[ "$state" == "Synced Healthy" ]]; then
       printf ' ... ready\n'
       return 0
+    fi
+    details="$(kubectl get application "$name" -n argocd \
+      -o jsonpath='{range .status.conditions[*]}{.type}{": "}{.message}{"\n"}{end}' 2>/dev/null || true)"
+    if [[ "$details" == *"ComparisonError:"* ||
+          "$details" == *"InvalidSpecError:"* ||
+          "$details" == *"UnknownError:"* ||
+          "$details" == *"SyncError:"* ]]; then
+      printf '\nArgo CD reported an error for application %s:\n%s\n' "$name" "$details" >&2
+      kubectl describe application "$name" -n argocd >&2
+      return 1
     fi
     printf '.'
     sleep 10
