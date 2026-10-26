@@ -35,6 +35,8 @@ spec:
               database:
                 client: better-sqlite3
                 connection: ':memory:'
+              auth:
+                dangerouslyDisableDefaultAuthPolicy: true
               reading:
                 allow:
                   - host: raw.githubusercontent.com

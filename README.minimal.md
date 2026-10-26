@@ -67,6 +67,15 @@ drift from the moving `latest` tag. Its catalog reader explicitly allows
 `raw.githubusercontent.com` for the sample catalog descriptor. The cluster
 also uses k3s' bundled Traefik ingress controller.
 
+## Local-only authentication warning
+
+The minimal Backstage profile disables the backend's default authentication
+policy so its UI can call the API without configuring a sign-in provider. This
+is only appropriate for an isolated local development cluster. It makes
+Backstage backend APIs accessible without authentication; do not copy this
+setting into production. The k3d ingress is bound to `127.0.0.1` on the local
+machine.
+
 ## Start the platform
 
 From the repository root:
