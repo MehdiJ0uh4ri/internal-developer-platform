@@ -15,6 +15,7 @@ spec:
           replicas: 1
           revisionHistoryLimit: 1
           image:
+            tag: 1.55.2
             pullPolicy: IfNotPresent
           resources:
             requests:
@@ -34,6 +35,9 @@ spec:
               database:
                 client: better-sqlite3
                 connection: ':memory:'
+              reading:
+                allow:
+                  - host: raw.githubusercontent.com
             catalog:
               locations:
                 - type: url

@@ -58,10 +58,14 @@ git push -u origin minimal
 
 ## Resource profile
 
-All applications use one replica. Backstage requests 512 MiB and is limited to
+All applications use one replica. Backstage uses the explicitly pinned
+`ghcr.io/backstage/backstage:1.55.2` image, requests 512 MiB, and is limited to
 1 GiB; Argo CD component requests and limits are set individually in
 `minimal/argocd/helm-values.yaml`; the demo app requests 32 MiB and is limited
-to 64 MiB. The cluster also uses k3s' bundled Traefik ingress controller.
+to 64 MiB. The Backstage image tag is pinned to avoid frontend/backend version
+drift from the moving `latest` tag. Its catalog reader explicitly allows
+`raw.githubusercontent.com` for the sample catalog descriptor. The cluster
+also uses k3s' bundled Traefik ingress controller.
 
 ## Start the platform
 

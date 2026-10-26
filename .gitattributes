@@ -1,2 +1,4 @@
 *.sh text eol=lf
+README.minimal.md whitespace=cr-at-eol
+minimal/argocd/applications/backstage.yaml whitespace=cr-at-eol
 minimal/overlays/demo-app/deployment-patch.yaml text eol=lf
